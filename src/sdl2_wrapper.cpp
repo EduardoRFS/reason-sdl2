@@ -15,13 +15,14 @@
 #include "stb_image.h"
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_config.h>
 #include <SDL2/SDL_syswm.h>
 
-#ifdef __APPLE__
+#if SDL_VIDEO_DRIVER_COCOA
 #import <Cocoa/Cocoa.h>
 #endif
 
-#ifdef WIN32
+#if WIN32
 #include <Windows.h>
 #include <fcntl.h>
 #include <io.h>
@@ -154,7 +155,7 @@ CAMLprim value resdl_SDL_Delay(value delay) {
   CAMLreturn(Val_unit);
 }
 
-#ifdef WIN32
+#if WIN32
 
 typedef enum PROCESS_DPI_AWARENESS {
   PROCESS_DPI_UNAWARE = 0,
@@ -186,7 +187,8 @@ CAMLprim value resdl_SDL_GetVersion() {
   CAMLlocal1(ret);
 
   const char *str;
-#ifdef __APPLE__
+// TODO: should we handle it differently for iOS?
+#if __APPLE__
   NSProcessInfo *pInfo = [NSProcessInfo processInfo];
   NSString *version = [pInfo operatingSystemVersionString];
   str = [version UTF8String];
@@ -208,24 +210,34 @@ CAMLprim value resdl_SDL_GetNativeWindow(value vWin) {
 
   void *pNativeWindow = NULL;
   switch (wmInfo.subsystem) {
-#ifdef WIN32
+#if SDL_VIDEO_DRIVER_WINDOWS
   case SDL_SYSWM_WINDOWS:
     pNativeWindow = (void *)wmInfo.info.win.window;
     break;
-#elif __APPLE__
+#endif
+#if SDL_VIDEO_DRIVER_UIKIT
+  case SDL_SYSWM_UIKIT:
+    pNativeWindow = (void *)wmInfo.info.uikit.window;
+    break;
+#endif
+#if SDL_VIDEO_DRIVER_COCOA
   case SDL_SYSWM_COCOA:
     pNativeWindow = (void *)wmInfo.info.cocoa.window;
     break;
-#else
+#endif
+#if SDL_VIDEO_DRIVER_ANDROID
+  case SDL_SYSWM_ANDROID:
+    pNativeWindow = (void *)wmInfo.info.android.window;
+#endif
+#if SDL_VIDEO_DRIVER_X11
   case SDL_SYSWM_X11:
     pNativeWindow = (void *)wmInfo.info.x11.window;
     break;
-    // TODO: Do we need a compilation flag to enable wayland support?
-    /*
-    case SDL_SYSWM_WAYLAND:
-      pNativeWindow = (void *)wmInfo.info.wl.surface;
-      break;
-    */
+#endif
+#if SDL_VIDEO_DRIVER_WAYLAND
+  case SDL_SYSWM_WAYLAND:
+    pNativeWindow = (void *)wmInfo.info.wl.surface;
+    break;
 #endif
   default:
     break;
@@ -234,7 +246,7 @@ CAMLprim value resdl_SDL_GetNativeWindow(value vWin) {
   CAMLreturn((value)pNativeWindow);
 };
 
-#ifdef WIN32
+#if WIN32
 
 // This method is calling after attach / alloc console
 // to wire up the new stdin/stdout/stderr.
@@ -278,7 +290,7 @@ void resdl_Win32AttachStdIO() {
 CAMLprim value resdl_SDL_WinAttachConsole() {
   CAMLparam0();
   int ret = 0;
-#ifdef WIN32
+#if WIN32
   // Only attach if we don't already have a stdout handle
   if (GetStdHandle(STD_OUTPUT_HANDLE) == NULL) {
     ret = AttachConsole(ATTACH_PARENT_PROCESS);
@@ -297,7 +309,7 @@ CAMLprim value resdl_SDL_WinAttachConsole() {
 CAMLprim value resdl_SDL_WinAllocConsole() {
   CAMLparam0();
   int ret = 0;
-#ifdef WIN32
+#if WIN32
   ret = AllocConsole();
   if (ret) {
     resdl_Win32AttachStdIO();
@@ -309,7 +321,7 @@ CAMLprim value resdl_SDL_WinAllocConsole() {
 CAMLprim value resdl_SDL_SetMacTitlebarTransparent(value vWin) {
   CAMLparam1(vWin);
 
-#ifdef __APPLE__
+#if SDL_VIDEO_DRIVER_COCOA
   SDL_Window *win = (SDL_Window *)vWin;
   SDL_SysWMinfo wmInfo;
   SDL_VERSION(&wmInfo.version);
@@ -328,7 +340,7 @@ CAMLprim value resdl_SDL_SetMacBackgroundColor(value vWin, value r, value g,
                                                value b, value a) {
   CAMLparam5(vWin, r, g, b, a);
 
-#ifdef __APPLE__
+#if SDL_VIDEO_DRIVER_COCOA
   SDL_Window *win = (SDL_Window *)vWin;
   SDL_SysWMinfo wmInfo;
   SDL_VERSION(&wmInfo.version);
@@ -349,7 +361,7 @@ CAMLprim value resdl_SDL_SetMacBackgroundColor(value vWin, value r, value g,
 CAMLprim value resdl_SDL_SetWin32ProcessDPIAware(value vWin) {
   CAMLparam1(vWin);
 
-#ifdef WIN32
+#if WIN32
   void *userDLL;
   BOOL(WINAPI * SetProcessDPIAware)(void); // Vista and later
   void *shcoreDLL;
@@ -384,7 +396,7 @@ CAMLprim value resdl_SDL_SetWin32ProcessDPIAware(value vWin) {
 CAMLprim value resdl_SDL_GetWin32ScaleFactor(value vWin) {
   CAMLparam1(vWin);
 
-#ifdef WIN32
+#if WIN32
   SDL_Window *win = (SDL_Window *)vWin;
   HWND hwnd = getHWNDFromSDLWindow(win);
   HMONITOR hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
@@ -1284,19 +1296,16 @@ CAMLprim value resdl_SDL_CreateWindow(value vName, value vX, value vY,
   // Attributes pulled from:
   // https://github.com/google/skia/blob/master/example/SkiaSDLExample.cpp
   static const int kStencilBits = 8; // Skia needs 8 stencil bits
+#if SDL_VIDEO_OPENGL
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-#ifdef WIN32
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#elif __APPLE__
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 #else
-  // There's no guarantee that Linux 3.0 is available on Linux.
-  // ie, on my CentOS 6 box, with latest Intel drivers - only 2.1 is supported.
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#endif
+
+  // that is the minimum version required
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#endif
+
   SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
   SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
   SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
@@ -1373,7 +1382,7 @@ CAMLprim value resdl_SDL_IsWindowFullscreen(value vWin) {
   // SDL's fullscreen window flags don't work on macOS
   SDL_Window *win = (SDL_Window *)vWin;
   bool isFullscreen;
-#ifdef __APPLE__
+#if SDL_VIDEO_DRIVER_COCOA
   SDL_SysWMinfo wmInfo;
   SDL_VERSION(&wmInfo.version);
   SDL_GetWindowWMInfo(win, &wmInfo);
